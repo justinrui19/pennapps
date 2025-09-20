@@ -24,6 +24,10 @@
           <span class="pill" id="pill-haz">Hazards: 0</span>
         </div>
         <div id="list"></div>
+        <div style="margin-top:8px; display:flex; gap:8px;">
+          <button id="btn-start" style="background:#065f46;color:white;border:none;padding:6px 10px;border-radius:6px;cursor:pointer;">Start Exploration</button>
+          <button id="btn-stop" style="background:#7f1d1d;color:white;border:none;padding:6px 10px;border-radius:6px;cursor:pointer;">Stop Exploration</button>
+        </div>
       </div>
       <canvas id="canvas"></canvas>
     </div>
@@ -36,6 +40,8 @@
       const list = document.getElementById('list');
       const canvas = document.getElementById('canvas');
       const ctx = canvas.getContext('2d');
+      const btnStart = document.getElementById('btn-start');
+      const btnStop = document.getElementById('btn-stop');
 
       // Image stream element (offscreen)
       const img = new Image();
@@ -87,6 +93,27 @@
       });
 
       img.onload = () => draw();
+
+      async function post(path, body) {
+        try {
+          const isForm = body && !(body instanceof Object);
+          const res = await fetch(path, {
+            method: 'POST',
+            headers: body && body instanceof Object ? { 'content-type': 'application/json' } : undefined,
+            body: body && body instanceof Object ? JSON.stringify(body) : body
+          });
+          return await res.json();
+        } catch (e) { return { ok:false, error: String(e) }; }
+      }
+
+      btnStart.addEventListener('click', async () => {
+        await post('/api/explore/start');
+        await post('/api/nav/mode', 'mode=auto');
+      });
+      btnStop.addEventListener('click', async () => {
+        await post('/api/explore/stop');
+        await post('/api/nav/mode', 'mode=manual');
+      });
 
       function draw() {
         const dpr = window.devicePixelRatio || 1;
