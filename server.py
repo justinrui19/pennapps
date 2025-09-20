@@ -1,6 +1,8 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query
 from fastapi.responses import RedirectResponse, StreamingResponse
 import requests
+import os
+from rescuer.config import get_default_stream_url
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -82,7 +84,9 @@ async def root_redirect():
     return RedirectResponse(url="/dashboard")
 
 @app.get("/video_proxy")
-def video_proxy(url: str = "http://192.168.43.36:81/stream"):
+def video_proxy(url: str = ""):
+    if not url:
+        url = get_default_stream_url()
     try:
         upstream = requests.get(url, stream=True, timeout=5)
     except Exception as e:

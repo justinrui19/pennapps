@@ -4,23 +4,24 @@ import sys
 import os
 import signal
 import time
+from rescuer.config import get_default_stream_url, get_default_server_base
 
 
 def run():
-    if len(sys.argv) < 2:
-        print("Usage: orchestrator.py <server_base_url> [stream_url]")
-        print("Example: orchestrator.py http://localhost:8000 http://192.168.43.36:81/stream")
-        sys.exit(1)
-    server = sys.argv[1]
-    stream = sys.argv[2] if len(sys.argv) >= 3 else "http://192.168.43.36:81/stream"
+    server = get_default_server_base()
+    stream = get_default_stream_url()
+    if len(sys.argv) >= 2:
+        server = sys.argv[1]
+    if len(sys.argv) >= 3:
+        stream = sys.argv[2]
 
     env = os.environ.copy()
 
     # YOLO detections -> dashboard
-    yolo_cmd = [sys.executable, os.path.join(os.path.dirname(__file__), 'esp32_yolo_detection.py'), '--server', server]
+    yolo_cmd = [sys.executable, os.path.join(os.path.dirname(__file__), 'esp32_yolo_detection.py'), '--server', server, '--stream', stream]
 
     # SLAM -> dashboard (pose)
-    slam_cmd = [sys.executable, os.path.join(os.path.dirname(__file__), 'run_esp32_slam.py'), server]
+    slam_cmd = [sys.executable, os.path.join(os.path.dirname(__file__), 'run_esp32_slam.py'), '--server', server, '--stream', stream]
 
     procs = []
     try:
