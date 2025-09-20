@@ -119,3 +119,7 @@ add_executable(mono_webcam_live
 Examples/Monocular/mono_webcam_live.cc)
 target_link_libraries(mono_webcam_live ${PROJECT_NAME})
 
+add_executable(mono_webcam_visual
+Examples/Monocular/mono_webcam_visual.cc)
+target_link_libraries(mono_webcam_visual ${PROJECT_NAME})
+

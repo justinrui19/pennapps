@@ -84,11 +84,32 @@ int main(int argc, char **argv)
         // Pass the image to the SLAM system
         cv::Mat pose = SLAM.TrackMonocular(im_gray, timestamp);
         
-        // Display some info
+        // Create display frame with SLAM visualization
+        cv::Mat display_frame = im.clone();
+        
+        // Add tracking status and info overlay
+        std::string status = pose.empty() ? "TRACKING: LOST" : "TRACKING: OK";
+        cv::Scalar status_color = pose.empty() ? cv::Scalar(0, 0, 255) : cv::Scalar(0, 255, 0);
+        
+        auto elapsed = chrono::duration_cast<chrono::seconds>(current_time - start_time).count();
+        double fps = frame_count / (double)(elapsed + 1);
+        
+        // Overlay information
+        cv::putText(display_frame, status, cv::Point(10, 30), 
+                   cv::FONT_HERSHEY_SIMPLEX, 0.7, status_color, 2);
+        cv::putText(display_frame, "Frame: " + std::to_string(frame_count), cv::Point(10, 60), 
+                   cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(255, 255, 255), 2);
+        cv::putText(display_frame, "FPS: " + std::to_string((int)fps), cv::Point(10, 90), 
+                   cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(255, 255, 255), 2);
+        cv::putText(display_frame, "Press ESC to quit", cv::Point(10, 120), 
+                   cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(255, 255, 255), 2);
+        
+        // Show the camera feed with overlays
+        cv::imshow("ORB-SLAM2: Live Camera Feed", display_frame);
+        
+        // Display some info in console
         if(frame_count % 30 == 0) // Every 30 frames
         {
-            auto elapsed = chrono::duration_cast<chrono::seconds>(current_time - start_time).count();
-            double fps = frame_count / (double)elapsed;
             cout << "Frame " << frame_count << ", FPS: " << fps << ", Tracking: " << (pose.empty() ? "LOST" : "OK") << endl;
         }
         
