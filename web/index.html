@@ -1,0 +1,152 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Rescuer Interface</title>
+    <style>
+      html, body, #app { height: 100%; margin: 0; background: #0b0f14; color: #e6f1ff; font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji"; }
+      #hud { position: absolute; top: 12px; left: 12px; z-index: 10; background: rgba(15,23,42,0.7); padding: 10px 12px; border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
+      .pill { display: inline-block; padding: 3px 8px; margin-right: 6px; border-radius: 999px; background: #1f2937; font-size: 12px; }
+      #list { margin-top: 8px; font-size: 12px; line-height: 1.5; max-height: 160px; overflow: auto; }
+      #minimap { margin-top: 8px; width: 240px; height: 160px; background: #0b1220; border-radius: 6px; border: 1px solid #1f2937; }
+      #stage { position: absolute; inset: 0; }
+      #video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #0b0f14; }
+      #overlay { position: absolute; inset: 0; }
+      a { color: #7dd3fc; text-decoration: none; }
+    </style>
+  </head>
+  <body>
+    <div id="hud">
+      <div><strong>Rescuer Interface</strong></div>
+      <div id="stats">
+        <span class="pill" id="pill-conn">WS: connecting</span>
+        <span class="pill" id="pill-dets">Detections: 0</span>
+        <span class="pill" id="pill-haz">Hazards: 0</span>
+      </div>
+      <div id="list"></div>
+      <canvas id="minimap" width="240" height="160"></canvas>
+    </div>
+    <div id="stage">
+      <img id="video" alt="video" />
+      <canvas id="overlay"></canvas>
+    </div>
+    <script type="module">
+      const ws = new WebSocket(`ws://${location.host}/ws`);
+      const pillConn = document.getElementById('pill-conn');
+      const pillDets = document.getElementById('pill-dets');
+      const pillHaz = document.getElementById('pill-haz');
+      const list = document.getElementById('list');
+      const img = document.getElementById('video');
+      const canvas = document.getElementById('overlay');
+      const ctx = canvas.getContext('2d');
+      const minimap = document.getElementById('minimap');
+      const mm = minimap.getContext('2d');
+
+      let state = { detections: {}, hazards: {}, pose: null, path: [] };
+
+      // Stream from proxy
+      const params = new URLSearchParams(location.search);
+      const stream = params.get('stream') || 'http://192.168.43.36:81/stream';
+      img.src = `/video_proxy?url=${encodeURIComponent(stream)}`;
+
+      function resize() {
+        canvas.width = img.clientWidth;
+        canvas.height = img.clientHeight;
+        draw();
+      }
+      window.addEventListener('resize', resize);
+      img.addEventListener('load', resize);
+
+      ws.addEventListener('open', () => {
+        pillConn.textContent = 'WS: connected';
+        pillConn.style.background = '#065f46';
+      });
+      ws.addEventListener('close', () => {
+        pillConn.textContent = 'WS: disconnected';
+        pillConn.style.background = '#7f1d1d';
+      });
+      ws.addEventListener('message', (ev) => {
+        const msg = JSON.parse(ev.data);
+        if (msg.type === 'state') state = msg.data;
+        if (msg.type === 'detections') state.detections = Object.fromEntries(msg.data.map(d => [d.id, d]));
+        if (msg.type === 'hazards') state.hazards = Object.fromEntries(msg.data.map(h => [h.id, h]));
+        if (msg.type === 'pose') state.pose = msg.data;
+        pillDets.textContent = `Detections: ${Object.keys(state.detections).length}`;
+        pillHaz.textContent = `Hazards: ${Object.keys(state.hazards).length}`;
+        list.innerHTML = [
+          ...Object.values(state.detections).map(d => `👤 ${d.id} [${d.confidence?.toFixed?.(2) ?? ''}] bbox=${d.bbox.map(n => n.toFixed(0)).join(',')}`),
+          ...Object.values(state.hazards).map(h => `⚠️ ${h.kind} @ ${h.position.map(n => n.toFixed(2)).join(',')}`),
+          state.pose ? `📍 pose t=${state.pose.t.toFixed(2)} p=${state.pose.position.map(n => n.toFixed(2)).join(',')}` : ''
+        ].filter(Boolean).join('<br/>');
+        draw();
+        drawMinimap();
+      });
+
+      function draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.lineWidth = 2;
+        ctx.font = '14px system-ui';
+        ctx.strokeStyle = '#10b981';
+        ctx.fillStyle = '#10b981';
+        const scaleX = img.naturalWidth ? (canvas.width / img.naturalWidth) : 1;
+        const scaleY = img.naturalHeight ? (canvas.height / img.naturalHeight) : 1;
+        for (const d of Object.values(state.detections)) {
+          const [x1,y1,x2,y2] = d.bbox;
+          const rx1 = x1 * scaleX, ry1 = y1 * scaleY, rw = (x2-x1)*scaleX, rh = (y2-y1)*scaleY;
+          ctx.strokeStyle = '#10b981';
+          ctx.strokeRect(rx1, ry1, rw, rh);
+          const label = `Person ${d.confidence?.toFixed?.(2) ?? ''}`;
+          ctx.fillText(label, rx1 + 4, Math.max(12, ry1 - 4));
+        }
+      }
+
+      function drawMinimap() {
+        mm.clearRect(0, 0, minimap.width, minimap.height);
+        // Frame
+        mm.strokeStyle = '#334155';
+        mm.strokeRect(0.5, 0.5, minimap.width - 1, minimap.height - 1);
+        // Map scaling: project x,y from meters to pixels
+        const margin = 8;
+        const w = minimap.width - margin*2;
+        const h = minimap.height - margin*2;
+        const xs = state.path.map(p => p[0]);
+        const ys = state.path.map(p => p[1]);
+        const minX = Math.min(-5, ...xs, 5);
+        const maxX = Math.max(-5, ...xs, 5);
+        const minY = Math.min(-5, ...ys, 5);
+        const maxY = Math.max(-5, ...ys, 5);
+        const spanX = Math.max(1e-3, maxX - minX);
+        const spanY = Math.max(1e-3, maxY - minY);
+        const sx = w / spanX;
+        const sy = h / spanY;
+        function toPix(p) {
+          const x = (p[0] - minX) * sx + margin;
+          const y = h - (p[1] - minY) * sy + margin; // invert Y for top-down
+          return [x, y];
+        }
+        // Path
+        if (state.path.length >= 2) {
+          mm.strokeStyle = '#38bdf8';
+          mm.lineWidth = 2;
+          mm.beginPath();
+          let [x0, y0] = toPix(state.path[0]);
+          mm.moveTo(x0, y0);
+          for (let i = 1; i < state.path.length; i++) {
+            const [x, y] = toPix(state.path[i]);
+            mm.lineTo(x, y);
+          }
+          mm.stroke();
+        }
+        // Current pose
+        if (state.pose && state.pose.position) {
+          const [cx, cy] = toPix(state.pose.position);
+          mm.fillStyle = '#10b981';
+          mm.beginPath();
+          mm.arc(cx, cy, 3, 0, Math.PI*2);
+          mm.fill();
+        }
+      }
+    </script>
+  </body>
+</html>

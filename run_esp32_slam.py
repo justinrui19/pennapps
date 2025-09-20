@@ -9,22 +9,27 @@ import sys
 import os
 import time
 import requests
+import threading
+import argparse
+from rescuer.config import get_default_stream_url, get_default_camera_base
 
-def test_esp32_connection():
+
+def test_esp32_connection(camera_base: str):
     """Test if ESP32-CAM is accessible"""
     print("Testing ESP32-CAM connection...")
     
     # Test base connection (port 80)
     try:
-        response = requests.get("http://192.168.43.36", timeout=5)
+        response = requests.get(camera_base, timeout=5)
         print(f"✓ ESP32-CAM base accessible: {response.status_code}")
     except Exception as e:
         print(f"✗ ESP32-CAM base connection failed: {e}")
         return False
     
     # Test stream connection (port 81)
+    stream_base = camera_base.replace('http://', 'http://')  # no-op; preserve scheme
     try:
-        response = requests.get("http://192.168.43.36:81", timeout=5, stream=True)
+        response = requests.get(stream_base.replace(':80', '') + ":81", timeout=5, stream=True)
         if response.status_code == 200:
             print("✓ ESP32-CAM stream accessible")
             response.close()
@@ -36,11 +41,10 @@ def test_esp32_connection():
     
     return False
 
-def configure_esp32_camera():
+
+def configure_esp32_camera(camera_base: str):
     """Configure ESP32-CAM settings for optimal SLAM"""
     print("Configuring ESP32-CAM for SLAM...")
-    
-    base_url = "http://192.168.43.36"
     
     settings = [
         ("framesize", 6, "VGA resolution (640x480)"),
@@ -54,7 +58,7 @@ def configure_esp32_camera():
     
     for param, value, description in settings:
         try:
-            url = f"{base_url}/control?var={param}&val={value}"
+            url = f"{camera_base}/control?var={param}&val={value}"
             response = requests.get(url, timeout=3)
             if response.status_code == 200:
                 print(f"  ✓ {description}")
@@ -66,8 +70,9 @@ def configure_esp32_camera():
     # Wait for settings to apply
     time.sleep(2)
 
-def run_slam_with_esp32():
-    """Run ORB-SLAM2 with ESP32-CAM live feed"""
+
+def run_slam_with_esp32(server_base: str, stream_url: str):
+    """Run ORB-SLAM2 with ESP32-CAM live feed and publish pose to dashboard if provided"""
     
     # Check if SLAM executable exists
     slam_executable = "./Examples/Monocular/mono_esp32cam_live"
@@ -91,76 +96,63 @@ def run_slam_with_esp32():
     print("\n" + "="*50)
     print("🚀 Starting ORB-SLAM2 with ESP32-CAM Live Feed")
     print("="*50)
-    print("Expected behavior:")
-    print("• Camera stream window will appear")
-    print("• Green feature points will be tracked")
-    print("• Camera trajectory will be visualized")
-    print("• Map points will be displayed in 3D")
     print("Press ESC or Ctrl+C to stop")
     print("="*50)
     
-    # Run the SLAM system
-    cmd = [slam_executable, vocab_path, config_path]
-    
+    cmd = [slam_executable, vocab_path, config_path, stream_url]
+
+    def reader(proc):
+        for line in iter(proc.stdout.readline, b''):
+            try:
+                text = line.decode('utf-8', errors='ignore').strip()
+            except Exception:
+                continue
+            print(text)
+            if server_base and text.startswith('POSE '):
+                parts = text.split()
+                if len(parts) == 9:
+                    # POSE t x y z qx qy qz qw
+                    try:
+                        t = float(parts[1])
+                        pos = [float(parts[2]), float(parts[3]), float(parts[4])]
+                        orient = [float(parts[5]), float(parts[6]), float(parts[7]), float(parts[8])]
+                        payload = { 't': t, 'position': pos, 'orientation': orient }
+                        try:
+                            requests.post(f"{server_base.rstrip('/')}/api/pose", json=payload, timeout=0.3)
+                        except Exception:
+                            pass
+                    except Exception:
+                        pass
+
     try:
-        print(f"Executing: {' '.join(cmd)}")
-        print("Starting SLAM... (this may take a few seconds to initialize)")
-        
-        # Run SLAM in foreground so we can see output
-        result = subprocess.run(cmd, cwd=".", capture_output=False)
-        
-        if result.returncode == 0:
-            print("✓ SLAM completed successfully")
-        else:
-            print(f"✗ SLAM exited with code: {result.returncode}")
-            
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        t = threading.Thread(target=reader, args=(proc,), daemon=True)
+        t.start()
+        proc.wait()
     except KeyboardInterrupt:
         print("\n⚠ SLAM interrupted by user")
     except Exception as e:
         print(f"✗ Error running SLAM: {e}")
 
-def run_slam_with_webcam():
-    """Fallback: Run SLAM with computer webcam"""
-    print("\n📷 ESP32-CAM not available, trying webcam...")
-    
-    # Create a simple webcam SLAM using existing mono_kitti (modified for live feed)
-    # This would require modifying the KITTI example for live camera input
-    
-    print("To use your webcam with SLAM:")
-    print("1. Connect a USB camera")
-    print("2. Modify Examples/Monocular/mono_kitti.cc for live input")
-    print("3. Or use a recording app to create image sequences")
-    
-    # Alternative: suggest using recorded sequences
-    print("\nAlternative: Test with recorded sequences:")
-    print("./Examples/Monocular/mono_tum Vocabulary/ORBvoc.txt Examples/Monocular/TUM1.yaml test_images/")
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--server', type=str, default='', help='Dashboard server base URL (e.g., http://localhost:8000)')
+    parser.add_argument('--stream', type=str, default=get_default_stream_url(), help='ESP32 MJPEG stream URL (http://ip:81/stream)')
+    parser.add_argument('--camera-base', type=str, default=get_default_camera_base(), help='ESP32 base URL for controls (http://ip)')
+    args = parser.parse_args()
+
     print("ESP32-CAM Live SLAM System")
     print("="*40)
     
-    # Test ESP32 connection
-    if test_esp32_connection():
+    if test_esp32_connection(args.camera_base):
         print("✓ ESP32-CAM is accessible")
-        
-        # Configure camera
-        configure_esp32_camera()
-        
-        # Run SLAM
-        run_slam_with_esp32()
-        
+        configure_esp32_camera(args.camera_base)
+        run_slam_with_esp32(server_base=args.server, stream_url=args.stream)
     else:
         print("✗ ESP32-CAM not accessible")
-        print("\nTroubleshooting:")
-        print("1. Make sure ESP32-CAM is powered on")
-        print("2. Check WiFi connection")
-        print("3. Verify IP address: http://192.168.43.36")
-        print("4. Ensure port 81 is accessible")
-        
-        # Offer webcam alternative
-        response = input("\nWould you like to try webcam instead? (y/n): ").strip().lower()
-        if response == 'y':
-            run_slam_with_webcam()
+        print("Troubleshoot connectivity and try again.")
+
 
 if __name__ == "__main__":
     main()

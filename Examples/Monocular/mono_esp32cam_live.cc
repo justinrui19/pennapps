@@ -125,7 +125,28 @@ int main(int argc, char **argv)
         double timestamp = elapsed / 1000.0;
 
         // Pass the image to the SLAM system
-        SLAM.TrackMonocular(im, timestamp);
+        cv::Mat Tcw = SLAM.TrackMonocular(im, timestamp);
+
+        // If pose is valid, print in TUM format to stdout with a prefix for easy parsing
+        if (!Tcw.empty()) {
+            cv::Mat Rcw = Tcw.rowRange(0,3).colRange(0,3);
+            cv::Mat tcw = Tcw.rowRange(0,3).col(3);
+            cv::Mat Rwc = Rcw.t();
+            cv::Mat Ow = -Rwc*tcw;
+            // Convert rotation to quaternion
+            // Reference: Eigen conversion; approximate with OpenCV Rodrigues not trivial; so compute manually
+            double r00 = Rwc.at<float>(0,0), r01 = Rwc.at<float>(0,1), r02 = Rwc.at<float>(0,2);
+            double r10 = Rwc.at<float>(1,0), r11 = Rwc.at<float>(1,1), r12 = Rwc.at<float>(1,2);
+            double r20 = Rwc.at<float>(2,0), r21 = Rwc.at<float>(2,1), r22 = Rwc.at<float>(2,2);
+            double qw = sqrt(max(0.0, 1.0 + r00 + r11 + r22)) / 2.0;
+            double qx = (r21 - r12) / (4.0*qw + 1e-9);
+            double qy = (r02 - r20) / (4.0*qw + 1e-9);
+            double qz = (r10 - r01) / (4.0*qw + 1e-9);
+            cout.setf(std::ios::fixed); cout.precision(6);
+            cout << "POSE " << timestamp << " "
+                 << Ow.at<float>(0) << " " << Ow.at<float>(1) << " " << Ow.at<float>(2) << " "
+                 << qx << " " << qy << " " << qz << " " << qw << endl;
+        }
         
         // Display the image with SLAM overlay
         cv::Mat im_with_info = im.clone();
