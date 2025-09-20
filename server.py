@@ -73,6 +73,7 @@ state: Dict[str, Any] = {
     "hazards": {},
     "pose": None,
     "path": [],
+    "map_points": [],
 }
 
 @app.get("/health")
@@ -133,6 +134,18 @@ async def post_pose(p: Pose):
         state["path"] = state["path"][ -200: ]
     await manager.broadcast({"type": "pose", "data": state["pose"]})
     return {"ok": True}
+
+@app.post("/api/map_points")
+async def post_map_points(points: List[List[float]], replace: bool = Query(default=False)):
+    # points: list of [x,y,z]
+    if replace:
+        state["map_points"] = []
+    # keep memory in check
+    state["map_points"].extend(points)
+    if len(state["map_points"]) > 20000:
+        state["map_points"] = state["map_points"][ -20000: ]
+    await manager.broadcast({"type": "map_points", "data": points, "replace": replace})
+    return {"ok": True, "count": len(points), "total": len(state["map_points"]) }
 
 @app.get("/api/state")
 async def get_state():

@@ -17,6 +17,7 @@
 #include<opencv2/imgproc.hpp>
 
 #include<System.h>
+#include<MapPoint.h>
 
 using namespace std;
 
@@ -146,6 +147,28 @@ int main(int argc, char **argv)
             cout << "POSE " << timestamp << " "
                  << Ow.at<float>(0) << " " << Ow.at<float>(1) << " " << Ow.at<float>(2) << " "
                  << qx << " " << qy << " " << qz << " " << qw << endl;
+        }
+
+        // Emit a sampled set of tracked map points for this frame (for minimap rendering)
+        {
+            std::vector<ORB_SLAM2::MapPoint*> vMP = SLAM.GetTrackedMapPoints();
+            if(!vMP.empty()){
+                // Sample to limit payload size
+                size_t max_pts = 300;
+                size_t step = std::max<size_t>(1, vMP.size() / max_pts);
+                cout.setf(std::ios::fixed); cout.precision(6);
+                cout << "MAPPOINTS ";
+                size_t emitted = 0;
+                for(size_t i = 0; i < vMP.size(); i += step){
+                    ORB_SLAM2::MapPoint* pMP = vMP[i];
+                    if(!pMP || pMP->isBad()) continue;
+                    cv::Mat Pw = pMP->GetWorldPos();
+                    cout << Pw.at<float>(0) << " " << Pw.at<float>(1) << " " << Pw.at<float>(2) << " ";
+                    emitted++;
+                    if(emitted >= max_pts) break;
+                }
+                cout << endl;
+            }
         }
         
         // Display the image with SLAM overlay

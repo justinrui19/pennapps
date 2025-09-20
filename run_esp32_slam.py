@@ -72,7 +72,7 @@ def configure_esp32_camera(camera_base: str):
 
 
 def run_slam_with_esp32(server_base: str, stream_url: str):
-    """Run ORB-SLAM2 with ESP32-CAM live feed and publish pose to dashboard if provided"""
+    """Run ORB-SLAM2 with ESP32-CAM live feed and publish pose/map points to dashboard if provided"""
     
     # Check if SLAM executable exists
     slam_executable = "./Examples/Monocular/mono_esp32cam_live"
@@ -108,7 +108,9 @@ def run_slam_with_esp32(server_base: str, stream_url: str):
             except Exception:
                 continue
             print(text)
-            if server_base and text.startswith('POSE '):
+            if not server_base:
+                continue
+            if text.startswith('POSE '):
                 parts = text.split()
                 if len(parts) == 9:
                     # POSE t x y z qx qy qz qw
@@ -123,6 +125,20 @@ def run_slam_with_esp32(server_base: str, stream_url: str):
                             pass
                     except Exception:
                         pass
+            elif text.startswith('MAPPOINTS '):
+                try:
+                    nums = [float(x) for x in text.split()[1:]]
+                    # group into triples
+                    pts = []
+                    for i in range(0, len(nums)-2, 3):
+                        pts.append([nums[i], nums[i+1], nums[i+2]])
+                    if pts:
+                        try:
+                            requests.post(f"{server_base.rstrip('/')}/api/map_points", params={'replace': 'false'}, json=pts, timeout=0.5)
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
 
     try:
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
