@@ -111,3 +111,11 @@ add_executable(mono_euroc
 Examples/Monocular/mono_euroc.cc)
 target_link_libraries(mono_euroc ${PROJECT_NAME})
 
+add_executable(mono_esp32cam_live
+Examples/Monocular/mono_esp32cam_live.cc)
+target_link_libraries(mono_esp32cam_live ${PROJECT_NAME})
+
+add_executable(mono_webcam_live
+Examples/Monocular/mono_webcam_live.cc)
+target_link_libraries(mono_webcam_live ${PROJECT_NAME})
+
